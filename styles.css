@@ -1,0 +1,38 @@
+/* Smart Label settings UI */
+
+.smart-label-section {
+  width: 100%;
+}
+
+.smart-label-rule-header,
+.smart-label-rule-row {
+  display: grid;
+  grid-template-columns: 1fr 8ch 10rem 1.8rem;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.smart-label-add-btn {
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.smart-label-rule-row select {
+  width: 100%;
+}
+
+.smart-label-input::placeholder {
+  color: var(--text-faint) !important;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.smart-label-catchall-label {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.smart-label-row-invalid .smart-label-input:first-of-type {
+  border-color: var(--color-red);
+}

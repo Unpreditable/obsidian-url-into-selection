@@ -1,9 +1,10 @@
 import assertNever from "assert-never";
 import { NothingSelected, PluginSettings } from "./types";
 import { Editor, EditorPosition, EditorRange } from "obsidian";
-import { isUrl, processUrl, isImgEmbed, isWikilink } from "./utils/url";
+import { isUrl, processUrl, isImgEmbed, isWikilink, isAlreadyWrapped } from "./utils/url";
 import { checkIfInMarkdownLink } from "./utils/markdown";
 import { stripSurroundingQuotes } from "./utils/quotes";
+import { findMatchingRule, buildSmartLabel, isExtractionBehavior } from "./utils/smartLabel";
 
 /**
  * @param editor Obsidian Editor Instance
@@ -42,6 +43,12 @@ export default function UrlIntoSelection(
     return;
   }
 
+  // Smart Label has its own self-contained path
+  if (!editor.somethingSelected() && settings.nothingSelected === NothingSelected.smartLabel) {
+    handleSmartLabel(editor, cb, settings);
+    return;
+  }
+
   const clipboardText = getCbText(cb);
   if (clipboardText === null) return;
 
@@ -75,6 +82,65 @@ export default function UrlIntoSelection(
   }
 }
 
+function handleSmartLabel(
+  editor: Editor,
+  cb: string | ClipboardEvent,
+  settings: PluginSettings,
+): void {
+  const clipboardText = getCbText(cb);
+  if (!clipboardText) return;
+  if (!isUrl(clipboardText, settings)) return;
+
+  const url = processUrl(clipboardText);
+  const matchedRule = findMatchingRule(url, settings.smartLabelRules);
+  const rule = matchedRule ?? settings.smartLabelDefault;
+
+  // donothing: don't intercept the paste at all
+  if (rule.behavior === "donothing") return;
+
+  if (typeof cb !== "string") cb.preventDefault();
+
+  switch (rule.behavior) {
+    case "autoselect": {
+      const replaceRange = getWordBoundaries(editor, settings);
+      const selectedText = editor.getRange(replaceRange.from, replaceRange.to);
+      const replaceText = `[${selectedText}](${url})`;
+      replace(editor, replaceText, replaceRange);
+      editor.setCursor({ ch: replaceRange.from.ch + replaceText.length, line: replaceRange.from.line });
+      break;
+    }
+
+    case "insertbare": {
+      const replaceRange = getCursor(editor);
+      const bareUrl = isAlreadyWrapped(url) ? url : `<${url}>`;
+      replace(editor, bareUrl, replaceRange);
+      editor.setCursor({ ch: replaceRange.from.ch + bareUrl.length, line: replaceRange.from.line });
+      break;
+    }
+
+    case "insertinline": {
+      const replaceRange = getCursor(editor);
+      replace(editor, `[](${url})`, replaceRange);
+      editor.setCursor({ ch: replaceRange.from.ch + 1, line: replaceRange.from.line });
+      break;
+    }
+
+    default: {
+      // Label extraction behaviors: asis, titlecase, uppercase, lowercase, prefixonly
+      const replaceRange = getCursor(editor);
+      const label = buildSmartLabel(url, rule);
+      const replaceText = `[${label}](${url})`;
+      replace(editor, replaceText, replaceRange);
+      if (!label) {
+        editor.setCursor({ ch: replaceRange.from.ch + 1, line: replaceRange.from.line });
+      } else {
+        editor.setCursor({ ch: replaceRange.from.ch + replaceText.length, line: replaceRange.from.line });
+      }
+      break;
+    }
+  }
+}
+
 function getSelnRange(editor: Editor, settings: PluginSettings) {
   let selectedText: string;
   let replaceRange: EditorRange | null;
@@ -95,6 +161,8 @@ function getSelnRange(editor: Editor, settings: PluginSettings) {
         break;
       case NothingSelected.doNothing:
         throw new Error("should be skipped");
+      case NothingSelected.smartLabel:
+        throw new Error("smartLabel nothing-selected path should be handled before getSelnRange");
       default:
         assertNever(settings.nothingSelected);
     }
@@ -271,4 +339,5 @@ export {
   findWordAt,
   getCursor,
   replace,
+  handleSmartLabel,
 };

@@ -6,4 +6,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
       .source,
   nothingSelected: NothingSelected.doNothing,
   listForImgEmbed: "",
+  smartLabelRules: [],
+  smartLabelDefault: { prefix: "", behavior: "insertinline" },
 };

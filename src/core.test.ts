@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Editor } from "./test/obsidian-mock";
 import UrlIntoSelection from "./core";
-import { NothingSelected, PluginSettings } from "./types";
+import { NothingSelected, PluginSettings, SmartLabelRule, SmartLabelDefault } from "./types";
 import { DEFAULT_SETTINGS } from "./test/test-settings";
 
 // Expose internal functions for testing by importing them differently
@@ -781,6 +781,136 @@ describe("Obsidian Wikilink Support", () => {
       UrlIntoSelection(editor, clipboardText, settings);
       expect(editor.getValue()).toBe("[[10. Links#Header1|Click Link Here]]");
     });
+  });
+});
+
+describe("Smart Label mode", () => {
+  let editor: Editor;
+
+  function makeSettings(rules: SmartLabelRule[] = [], defaultBehavior: SmartLabelDefault = { prefix: "", behavior: "insertinline" }) {
+    return {
+      ...DEFAULT_SETTINGS,
+      nothingSelected: NothingSelected.smartLabel,
+      smartLabelRules: rules,
+      smartLabelDefault: defaultBehavior,
+    };
+  }
+
+  beforeEach(() => {
+    editor = new Editor("", { line: 0, ch: 0 });
+  });
+
+  it("rule matched, asis → [AA-123](url)", () => {
+    const settings = makeSettings([
+      { pattern: "jira.company.com", prefix: "", behavior: "asis" },
+    ]);
+    UrlIntoSelection(editor, "https://jira.company.com/browse/AA-123", settings);
+    expect(editor.getValue()).toBe("[AA-123](https://jira.company.com/browse/AA-123)");
+  });
+
+  it("rule matched, titlecase + slug → [My Cool Feature](url)", () => {
+    const settings = makeSettings([
+      { pattern: "linear.app", prefix: "", behavior: "titlecase" },
+    ]);
+    UrlIntoSelection(editor, "https://linear.app/team/my-cool-feature", settings);
+    expect(editor.getValue()).toBe("[My Cool Feature](https://linear.app/team/my-cool-feature)");
+  });
+
+  it("rule matched, titlecase + ID-like → ID preserved", () => {
+    const settings = makeSettings([
+      { pattern: "jira.company.com", prefix: "", behavior: "titlecase" },
+    ]);
+    UrlIntoSelection(editor, "https://jira.company.com/browse/AA-123", settings);
+    expect(editor.getValue()).toBe("[AA-123](https://jira.company.com/browse/AA-123)");
+  });
+
+  it("rule matched, uppercase → segment uppercased", () => {
+    const settings = makeSettings([
+      { pattern: "example.com", prefix: "", behavior: "uppercase" },
+    ]);
+    UrlIntoSelection(editor, "https://example.com/page/my-feature", settings);
+    expect(editor.getValue()).toBe("[MY-FEATURE](https://example.com/page/my-feature)");
+  });
+
+  it("rule matched, prefixonly with prefix 'Blog' → [Blog](url), segment ignored", () => {
+    const settings = makeSettings([
+      { pattern: "blog.company.com", prefix: "Blog", behavior: "prefixonly" },
+    ]);
+    UrlIntoSelection(editor, "https://blog.company.com/some-long-post-title", settings);
+    expect(editor.getValue()).toBe("[Blog](https://blog.company.com/some-long-post-title)");
+  });
+
+  it("rule matched, donothing → no change to editor", () => {
+    const settings = makeSettings([
+      { pattern: "example.com", prefix: "", behavior: "donothing" },
+    ]);
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("");
+  });
+
+  it("rule matched, insertinline → [](url), cursor between brackets", () => {
+    const settings = makeSettings([
+      { pattern: "example.com", prefix: "", behavior: "insertinline" },
+    ]);
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("[](https://example.com/page)");
+    expect(editor.getCursor()).toEqual({ line: 0, ch: 1 });
+  });
+
+  it("rule matched, insertbare → <url>", () => {
+    const settings = makeSettings([
+      { pattern: "example.com", prefix: "", behavior: "insertbare" },
+    ]);
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("<https://example.com/page>");
+  });
+
+  it("rule matched, autoselect → [word](url)", () => {
+    editor = new Editor("word here", { line: 0, ch: 2 });
+    const settings = makeSettings([
+      { pattern: "example.com", prefix: "", behavior: "autoselect" },
+    ]);
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("[word](https://example.com/page) here");
+  });
+
+  it("no rule matches → uses default behavior", () => {
+    const settings = makeSettings(
+      [{ pattern: "other.com", prefix: "", behavior: "asis" }],
+      { prefix: "", behavior: "insertbare" },
+    );
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("<https://example.com/page>");
+  });
+
+  it("default insertinline with no match → [](url), cursor between brackets", () => {
+    const settings = makeSettings([], { prefix: "", behavior: "insertinline" });
+    UrlIntoSelection(editor, "https://example.com/page", settings);
+    expect(editor.getValue()).toBe("[](https://example.com/page)");
+    expect(editor.getCursor()).toEqual({ line: 0, ch: 1 });
+  });
+
+  it("URL with no path segment → [](url), cursor between brackets", () => {
+    const settings = makeSettings([], { prefix: "", behavior: "asis" });
+    UrlIntoSelection(editor, "https://example.com", settings);
+    expect(editor.getValue()).toBe("[](https://example.com)");
+    expect(editor.getCursor()).toEqual({ line: 0, ch: 1 });
+  });
+
+  it("pattern with * wildcard → matches correctly", () => {
+    const settings = makeSettings([
+      { pattern: "*.company.com", prefix: "Co: ", behavior: "asis" },
+    ]);
+    UrlIntoSelection(editor, "https://jira.company.com/browse/AA-123", settings);
+    expect(editor.getValue()).toBe("[Co: AA-123](https://jira.company.com/browse/AA-123)");
+  });
+
+  it("asis with prefix → prefix prepended to segment", () => {
+    const settings = makeSettings([
+      { pattern: "jira.company.com", prefix: "Jira: ", behavior: "asis" },
+    ]);
+    UrlIntoSelection(editor, "https://jira.company.com/browse/AA-123", settings);
+    expect(editor.getValue()).toBe("[Jira: AA-123](https://jira.company.com/browse/AA-123)");
   });
 });
 
